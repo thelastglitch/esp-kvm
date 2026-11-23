@@ -1,0 +1,8 @@
+# arduino-cli build output
+firmware/build/
+firmware/esp_kvm/build/
+# ruflo local state
+.swarm/
+.claude-flow/
+__pycache__/
+*.pyc
