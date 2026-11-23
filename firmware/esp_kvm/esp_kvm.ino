@@ -9,8 +9,11 @@
 #include "kvm_hid.h"
 #include "proto.h"
 
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 #define UART_BAUD 115200
+#ifndef BOARD_PROFILE
+#define BOARD_PROFILE "generic"  // set by tools/build.sh
+#endif
 #define BINARY_BYTE_GAP_MS 20     // a packet whose bytes are further apart is discarded
 #define DEFAULT_WATCHDOG_MS 3000  // release everything if the host goes silent
 
@@ -151,10 +154,21 @@ static void printStatus() {
         !!(kvm.leds & 0x04), kvm.mode == MOUSE_ABS ? "abs" : "rel", kvm.buttons, (unsigned long)watchdog_ms);
 }
 
+// Hardware the firmware is running on, to check the build profile matches
+// the board (e.g. N16R8: flash=16MB psram=8MB).
+static void printInfo() {
+  uint64_t mac = ESP.getEfuseMac();  // first MAC byte is the lowest
+  reply("OK board=%s chip=%s rev=%u cores=%u flash=%luMB psram=%luMB mac=%02x:%02x:%02x:%02x:%02x:%02x",
+        BOARD_PROFILE, ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores(),
+        (unsigned long)(ESP.getFlashChipSize() >> 20), (unsigned long)(ESP.getPsramSize() >> 20),
+        (int)(mac & 0xff), (int)(mac >> 8 & 0xff), (int)(mac >> 16 & 0xff), (int)(mac >> 24 & 0xff),
+        (int)(mac >> 32 & 0xff), (int)(mac >> 40 & 0xff));
+}
+
 static void printHelp() {
   static const char *const HELP[] = {
     "ESP-KVM " FW_VERSION " text commands (one per line, replies OK/ERR):",
-    "  ping | status | version | help",
+    "  ping | status | version | info | help",
     "  key <name> [down|up|press]   names: KeyA, Digit1, Enter, F5, ControlLeft... or a, ctrl, esc",
     "  combo <k1+k2+...>            e.g. combo ctrl+alt+Delete",
     "  type <text>                  US layout ASCII; '\\n' and '\\t' escapes",
@@ -198,6 +212,7 @@ static void handleLine(char *s) {
   if (!strcasecmp(cmd, "ping")) return reply("PONG");
   if (!strcasecmp(cmd, "status")) return printStatus();
   if (!strcasecmp(cmd, "version")) return reply("OK ESP-KVM " FW_VERSION);
+  if (!strcasecmp(cmd, "info")) return printInfo();
   if (!strcasecmp(cmd, "help")) return printHelp();
   if (!strcasecmp(cmd, "release")) { kvm.releaseAll(); return reply("OK"); }
 

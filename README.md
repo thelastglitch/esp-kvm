@@ -1,6 +1,6 @@
 # ESP-KVM
 
-ESP32-S3-DevKitC-1 as a serial-controlled USB keyboard + mouse, the input half
+An ESP32-S3 board as a serial-controlled USB keyboard + mouse, the input half
 of an IP-less KVM.
 
 ```
@@ -12,10 +12,21 @@ computer A  <── USB HID ──  [USB  port] ESP32-S3 [UART port]  ── ser
   It has three HID collections: a boot-protocol keyboard with LED feedback (works in BIOS/UEFI), an absolute
   pointer (0..32767, for clicking on a captured video frame), and a relative mouse
   (5 buttons, vertical and horizontal wheel).
-* **UART port** (CP2102N) → computer B, 115200 8N1. Opening the port does not reset the board.
-  On this board unit the CP2102N enumerates as `11ca:0205 "VeriFone USB modem"`, so Linux needs
-  `tools/setup-linux.sh` (run once with sudo) to bind the `cp210x` driver. Windows/macOS may need
-  the same VID:PID added to the Silicon Labs driver.
+* **UART port** (on-board USB-UART bridge) → computer B, 115200 8N1. Opening the port does not reset the board.
+
+## Boards
+
+The firmware is the same for every board; `tools/build.sh <profile>` picks the flash/PSRAM settings.
+
+| Profile | Board | Flash / PSRAM | UART bridge | Tested |
+|---|---|---|---|---|
+| `n16r8` | ESP32-S3-N16R8 dev board (two USB-C ports) | 16 MB quad / 8 MB octal | CP2102, `10c4:ea60`, standard `cp210x` driver | yes, hw_test 29/29 |
+| `devkitc1` | ESP32-S3-DevKitC-1 (N8 module) | 8 MB / none | CP2102N | yes on v1.0 firmware (27/27); this profile only compiled |
+
+Board quirk: the first DevKitC-1 unit tested had a CP2102N that enumerates as
+`11ca:0205 "VeriFone USB modem"`, which Linux does not bind on its own. `tools/setup-linux.sh`
+(run once with sudo) binds `cp210x` to it. Windows/macOS may need that VID:PID added to the
+Silicon Labs driver. Boards with a standard `10c4:ea60` bridge need no driver work.
 
 ## Layout
 
@@ -24,17 +35,19 @@ computer A  <── USB HID ──  [USB  port] ESP32-S3 [UART port]  ── ser
 | `firmware/esp_kvm/` | Arduino sketch (`esp_kvm.ino`, `kvm_hid.h`, `proto.h`, `keymap.h`) |
 | `host/espkvm.py` | Python client library + CLI for computer B (needs `pyserial`) |
 | `host/hw_test.py` | End-to-end hardware test (Linux; both ports on the same machine) |
-| `tools/setup-linux.sh` | udev rules: cp210x binding, plugdev access to the HID nodes |
+| `tools/build.sh` | Build and flash for a board profile |
+| `tools/setup-linux.sh` | udev rules: cp210x binding for the odd CP2102N, plugdev access to the HID nodes |
 
 ## Build and flash
 
+Needs `arduino-cli` with the `esp32:esp32` core (tested with 3.3.12).
+
 ```bash
-cd firmware
-arduino-cli compile -b esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default,DebugLevel=none --output-dir build esp_kvm
-arduino-cli upload  -b esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default,DebugLevel=none -p /dev/ttyUSB0 --input-dir build esp_kvm
+tools/build.sh n16r8                 # compile only
+tools/build.sh n16r8 /dev/ttyUSB0    # compile and flash over the UART port
 ```
 
-`USBMode=default` means USB-OTG (TinyUSB). Flashing always goes through the UART port, because
+All profiles use USB-OTG (TinyUSB) mode with logging off, so UART0 is free for commands. Flashing always goes through the UART port, because
 the native port is taken over by the HID device.
 
 ## Protocols
@@ -71,6 +84,7 @@ One command per line. Replies are `OK ...`, `ERR ...` or `PONG`. Send `help` for
 
 ```
 ping | status | version | help
+info                              board profile, chip, flash/PSRAM size, MAC
 key <name> [down|up|press]        KeyA, Digit1, Enter, F5, ControlLeft, ... or a, ctrl, esc, win
 combo ctrl+alt+Delete
 type Hello, world!\n              US layout; \n \t \\ escapes
@@ -106,8 +120,10 @@ python3 host/espkvm.py raw status
 ## Hardware test
 
 ```bash
-python3 host/hw_test.py -p /dev/ttyUSB0
+python3 host/hw_test.py -p /dev/ttyUSB0 --flash-mb 16 --psram-mb 8    # N16R8
 ```
+
+`--flash-mb` and `--psram-mb` are optional. They check the firmware was built with the right profile for the board.
 
 The test grabs the ESP-KVM evdev nodes exclusively (EVIOCGRAB), so nothing it types reaches the desktop. It covers
 43 key mappings, typing, combos, rollover, LED feedback, both pointers, all buttons and both wheels, the watchdog,

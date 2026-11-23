@@ -123,6 +123,8 @@ def keys_of(evs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-p', '--port', default='/dev/ttyUSB0')
+    ap.add_argument('--flash-mb', type=int, help='expected flash size, e.g. 16 for N16R8')
+    ap.add_argument('--psram-mb', type=int, help='expected PSRAM size, e.g. 8 for N16R8')
     args = ap.parse_args()
 
     paths = find_nodes()
@@ -138,6 +140,13 @@ def main():
         pong = kvm.ping()
         r.check('ping (PiKVM binary)', pong.keyboard_online and pong.mouse_online, pong)
         r.check('version (text)', kvm.text('version')[-1].startswith('OK ESP-KVM'))
+        info = kvm.text('info')[-1]
+        print(f'        {info}')
+        fields = dict(f.split('=', 1) for f in info.split()[1:])
+        if args.flash_mb is not None:
+            r.check(f'flash is {args.flash_mb} MB', fields.get('flash') == f'{args.flash_mb}MB', info)
+        if args.psram_mb is not None:
+            r.check(f'PSRAM is {args.psram_mb} MB', fields.get('psram') == f'{args.psram_mb}MB', info)
         kvm.text('watchdog 0')
         kvm.release_all()
         for n in nodes.values():
